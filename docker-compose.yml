@@ -1,0 +1,51 @@
+services:
+  mssql:
+    # Tidak ada image Linux untuk SQL Server 2016 (Linux baru ada sejak 2017).
+    # Backup dari 2016 bisa langsung di-restore ke 2022.
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: ${MSSQL_PID:-Developer} # Developer gratis, hanya untuk non-produksi
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?isi MSSQL_SA_PASSWORD di file .env}
+      MSSQL_MEMORY_LIMIT_MB: ${MSSQL_MEMORY_LIMIT_MB:-4096}
+    ports:
+      # Hanya bisa diakses dari komputer ini. Hapus "127.0.0.1:" untuk membuka ke jaringan.
+      - "127.0.0.1:${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+      - ./backup:/backup:ro # taruh file .bak di folder ./backup
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q "SELECT 1" > /dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  cloudbeaver:
+    # SSMS hanya ada untuk Windows dan tidak bisa berjalan di Docker.
+    # CloudBeaver adalah penggantinya berbasis web: http://localhost:8978
+    image: dbeaver/cloudbeaver:26.2.4
+    container_name: cloudbeaver
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment:
+      CB_SERVER_NAME: CloudBeaver
+      CB_SERVER_URL: http://localhost:${CLOUDBEAVER_PORT:-8978}
+      CB_ADMIN_NAME: ${CLOUDBEAVER_ADMIN_NAME:-cbadmin}
+      CB_ADMIN_PASSWORD: ${CLOUDBEAVER_ADMIN_PASSWORD:?isi CLOUDBEAVER_ADMIN_PASSWORD di file .env}
+      CLOUDBEAVER_APP_ANONYMOUS_ACCESS_ENABLED: "false"
+      JAVA_OPTS: -Xmx1g
+    ports:
+      - "127.0.0.1:${CLOUDBEAVER_PORT:-8978}:8978"
+    volumes:
+      - cloudbeaver_data:/opt/cloudbeaver/workspace
+      # Koneksi awal ke TUNAS1. Hanya dibaca saat pertama kali volume dibuat.
+      - ./cloudbeaver/initial-data-sources.conf:/opt/cloudbeaver/conf/initial-data-sources.conf:ro
+
+volumes:
+  mssql_data:
+  cloudbeaver_data:
